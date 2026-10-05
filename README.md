@@ -260,7 +260,7 @@ kubectl get hpa devsu-nodejs-hpa --watch
 
 ---
 
-## 🔌 Endpoints de la API
+## Endpoints de la API
 
 | Método | Ruta | Descripción |
 |---|---|---|
@@ -307,16 +307,18 @@ Lo siguiente no fue implementado por el alcance de la prueba, pero sería necesa
 
 ---
 
-## Evidencia de ejecución
+## 📸 Evidencia de ejecución
 
-Resultado de las ejecuciones del pipeline: https://github.com/ayluiri/devsu-devops-test/actions
+Ejecuciones del pipeline: https://github.com/ayluiri/devsu-devops-test/actions
 
-<!-- Reemplazar por capturas reales una vez que el pipeline termine correctamente -->
+### Pipeline completo
+![Pipeline completo en verde](docs/pipeline-ok.png)
 
-| Evidencia | Captura |
-|---|---|
-| Pipeline completo en verde | `docs/pipeline-ok.png` |
-| Reporte de coverage | `docs/coverage.png` |
-| Escaneo de Trivy | `docs/trivy.png` |
-| `kubectl get pods,svc,hpa,ingress` | `docs/k8s-recursos.png` |
-| HPA escalando bajo carga | `docs/hpa-escalado.png` |
+### Reporte de coverage
+![Reporte de coverage](docs/coverage.png)
+
+### Escaneo de vulnerabilidades (Trivy)
+![Escaneo de Trivy](docs/trivy.png)
+
+### Recursos desplegados en Kubernetes
+![kubectl get pods,svc,hpa,ingress](docs/k8s-recursos.png)
