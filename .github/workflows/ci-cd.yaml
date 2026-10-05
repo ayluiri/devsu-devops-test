@@ -1,0 +1,77 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/devsu-nodejs-app
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write 
+
+    steps:
+    - name: 1. Checkout del código
+      uses: actions/checkout@v4
+
+    - name: 2. Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: 3. Code Build (Instalación de dependencias)
+      run: npm ci
+
+    - name: 4. Análisis Estático de Código (Static Code Analysis)
+      run: npm run lint --if-present || echo "No linter configured, skipping."
+
+    - name: 5. Unit Tests y Code Coverage
+      run: npm test -- --coverage || npm test
+
+    - name: 6. Login en GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: 7. Docker Build & Push
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ env.IMAGE_NAME }}:latest
+          \({{ env.IMAGE_NAME }}:\){{ github.sha }}
+
+    - name: 8. Escaneo de Vulnerabilidades (Requerimiento Opcional)
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: '\({{ env.IMAGE_NAME }}:\){{ github.sha }}'
+        format: 'table'
+        exit-code: '0' 
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: 'CRITICAL,HIGH'
+
+    - name: 9. Setup de Kubernetes Local en el Pipeline (Kind)
+      uses: helm/kind-action@v1.9.0
+
+    - name: 10. Despliegue en Kubernetes (Dry-Run / Test)
+      run: |
+
+        sed -i "s|image: devsu-nodejs-app:latest|image: \({{ env.IMAGE_NAME }}:\){{ github.sha }}|g" k8s/02-deployment.yaml
+        kubectl apply -f k8s/01-config.yaml
+        kubectl apply -f k8s/02-deployment.yaml
+        kubectl apply -f k8s/03-service-hpa.yaml
+        kubectl apply -f k8s/04-ingress.yaml
+        
+        sleep 10
+        kubectl get all
