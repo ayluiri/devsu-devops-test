@@ -56,7 +56,7 @@ jobs:
       with:
         image-ref: '\({{ env.IMAGE_NAME }}:\){{ github.sha }}'
         format: 'table'
-        exit-code: '0' 
+        exit-code: '0'
         ignore-unfixed: true
         vuln-type: 'os,library'
         severity: 'CRITICAL,HIGH'
@@ -66,12 +66,8 @@ jobs:
 
     - name: 10. Despliegue en Kubernetes (Dry-Run / Test)
       run: |
-
         sed -i "s|image: devsu-nodejs-app:latest|image: \({{ env.IMAGE_NAME }}:\){{ github.sha }}|g" k8s/02-deployment.yaml
         kubectl apply -f k8s/01-config.yaml
         kubectl apply -f k8s/02-deployment.yaml
         kubectl apply -f k8s/03-service-hpa.yaml
         kubectl apply -f k8s/04-ingress.yaml
-        
-        sleep 10
-        kubectl get all
