@@ -5,69 +5,105 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:          # permite relanzar el pipeline a mano desde la pestaña Actions
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}/devsu-nodejs-app
 
 jobs:
   build-test-deploy:
-    runs-on: ubuntu-latest
+    # Versión fija en lugar de ubuntu-latest (que migra a Ubuntu 26 el 19/10/2026)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
-      packages: write 
+      packages: write
 
     steps:
-    - name: 1. Checkout del código
-      uses: actions/checkout@v4
+      - name: 1. Checkout del código
+        uses: actions/checkout@v5
 
-    - name: 2. Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
+      - name: 2. Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-    - name: 3. Code Build (Instalación de dependencias)
-      run: npm ci
+      - name: 3. Code Build (instalación de dependencias)
+        run: npm ci
 
-    - name: 4. Análisis Estático de Código (Static Code Analysis)
-      run: npm run lint --if-present || echo "No linter configured, skipping."
+      - name: 4. Análisis estático de código (ESLint)
+        run: npx --yes eslint@9 .
 
-    - name: 5. Unit Tests y Code Coverage
-      run: npm test -- --coverage --forceExit
+      - name: 5. Unit Tests y Code Coverage
+        run: npm test -- --coverage --forceExit
 
-    - name: 6. Login en GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 6. Publicar reporte de coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
 
-    - name: 7. Docker Build & Push
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: true
-        tags: |
-          ${{ env.IMAGE_NAME }}:latest
-          \({{ env.IMAGE_NAME }}:\){{ github.sha }}
+      - name: 7. Docker Build (imagen local)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-    - name: 8. Escaneo de Vulnerabilidades (Requerimiento Opcional)
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: '\({{ env.IMAGE_NAME }}:\){{ github.sha }}'
-        format: 'table'
-        exit-code: '0'
-        ignore-unfixed: true
-        vuln-type: 'os,library'
-        severity: 'CRITICAL,HIGH'
+      # Versión segura post-incidente de marzo 2026 (CVE-2026-33634).
+      # Nunca usar @master: lo ideal es fijar el SHA completo del commit.
+      - name: 8. Escaneo de vulnerabilidades (Trivy)
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: table
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
 
-    - name: 9. Setup de Kubernetes Local en el Pipeline (Kind)
-      uses: helm/kind-action@v1.9.0
+      - name: 9. Login en GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: 10. Despliegue en Kubernetes (Dry-Run / Test)
-      run: |
-        sed -i "s|image: devsu-nodejs-app:latest|image: \({{ env.IMAGE_NAME }}:\){{ github.sha }}|g" k8s/02-deployment.yaml
-        kubectl apply -f k8s/01-config.yaml
-        kubectl apply -f k8s/02-deployment.yaml
-        kubectl apply -f k8s/03-service-hpa.yaml
-        kubectl apply -f k8s/04-ingress.yaml
+      - name: 10. Docker Push
+        if: github.event_name != 'pull_request'
+        run: |
+          docker push ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.IMAGE_NAME }}:latest
+
+      - name: 11. Crear clúster Kubernetes efímero (Kind)
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: devsu
+
+      - name: 12. Cargar la imagen en el clúster
+        run: kind load docker-image ${{ env.IMAGE_NAME }}:${{ github.sha }} --name devsu
+
+      - name: 13. Despliegue en Kubernetes
+        run: |
+          sed -i "s|image: devsu-nodejs-app:latest|image: ${{ env.IMAGE_NAME }}:${{ github.sha }}|g" k8s/02-deployment.yaml
+          kubectl apply -f k8s/
+          kubectl rollout status deployment/devsu-nodejs-app --timeout=180s
+          kubectl get pods,svc,hpa,ingress -o wide
+
+      - name: 14. Smoke test del endpoint
+        run: |
+          kubectl port-forward svc/devsu-nodejs-service 8080:80 &
+          sleep 5
+          curl --fail --retry 5 --retry-delay 3 http://localhost:8080/health
+          curl --fail http://localhost:8080/api/users
+
+      - name: Diagnóstico si falla el despliegue
+        if: failure()
+        run: |
+          kubectl describe pods -l app=devsu-nodejs || true
+          kubectl logs -l app=devsu-nodejs --tail=50 || true

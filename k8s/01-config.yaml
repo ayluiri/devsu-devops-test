@@ -5,3 +5,14 @@ metadata:
 data:
   NODE_ENV: "production"
   PORT: "8000"
+  DATABASE_NAME: "/app/data/dev.sqlite"
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: devsu-nodejs-secret
+type: Opaque
+stringData:
+  DATABASE_USER: "user"
+  DATABASE_PASSWORD: "password"
