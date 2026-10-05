@@ -48,7 +48,6 @@ jobs:
         context: .
         push: true
         tags: |
-          ${{ env.IMAGE_NAME }}:latest
           \({{ env.IMAGE_NAME }}:\){{ github.sha }}
 
     - name: 8. Escaneo de Vulnerabilidades (Requerimiento Opcional)
