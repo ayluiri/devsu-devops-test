@@ -33,7 +33,7 @@ jobs:
       run: npm run lint --if-present || echo "No linter configured, skipping."
 
     - name: 5. Unit Tests y Code Coverage
-      run: npm test -- --coverage || npm test
+      run: npm test -- --coverage --forceExit
 
     - name: 6. Login en GitHub Container Registry
       uses: docker/login-action@v3
